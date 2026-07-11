@@ -22,3 +22,5 @@ __pycache__/
 # Sistema operacional
 .DS_Store
 
+# Dados gerados pelo pipeline (Bronze/Silver/Gold)
+data/
