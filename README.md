@@ -14,7 +14,7 @@ O objetivo do projeto é construir uma pipeline completa de dados, desde a inges
 
 O projeto aplica conceitos utilizados no mercado como:
 
-* Arquitetura de pipelines de dados
+* Arquitetura de pipelines de dados (Medallion Architecture)
 * Orquestração de workflows
 * Processamento e transformação de dados
 * Persistência em banco relacional
@@ -24,25 +24,25 @@ O projeto aplica conceitos utilizados no mercado como:
 ---
 
 # 🏗️ Arquitetura da Pipeline
-
-```
-                 API REST
-                    |
-                    ↓
-          Python Data Ingestion
-                    |
-                    ↓
-              Apache Airflow
-                    |
-                    ↓
-           Data Processing Layer
-                    |
-                    ↓
-             PostgreSQL Database
-                    |
-                    ↓
-          Analytics / BI Layer
-```
+             API REST
+                |
+                ↓
+      Python Data Ingestion
+                |
+                ↓
+          Apache Airflow
+                |
+                ↓
+          Bronze Layer (dados brutos)
+                |
+                ↓
+          Silver Layer (dados validados)
+                |
+                ↓
+         PostgreSQL Database
+                |
+                ↓
+      Analytics / BI Layer
 
 ---
 
@@ -66,7 +66,45 @@ Tecnologias:
 
 ---
 
-## 2. Orquestração com Apache Airflow
+## 2. Bronze Layer
+
+Camada responsável por salvar o dado exatamente como chegou da fonte, sem nenhuma transformação.
+
+Motivação: em ambientes reais, nunca devemos perder o dado original. A Bronze serve para auditoria, reprocessamento, histórico e recuperação em caso de falha nas camadas seguintes.
+
+Responsável por:
+
+* Salvar o JSON bruto retornado pela API
+* Persistir os dados fora do container, via volume Docker
+
+Arquivo gerado:
+data/bronze/users_<data>.json
+
+---
+
+## 3. Silver Layer
+
+Camada responsável por validar os registros vindos da Bronze, sem descartar dados.
+
+Cada registro é lido do arquivo Bronze mais recente e passa por validações de:
+
+* `id` presente
+* `name` presente e não vazio
+* `email` presente e com formato válido
+
+Cada registro recebe dois campos adicionais:
+
+* `is_valid`: `true` ou `false`
+* `validation_errors`: lista com os motivos de invalidação (vazia se o registro for válido)
+
+Nenhum registro é descartado nessa etapa — inválidos são mantidos e sinalizados, para investigação posterior.
+
+Arquivo gerado:
+data/silver/users_<data>.json
+
+---
+
+## 4. Orquestração com Apache Airflow
 
 O workflow é gerenciado pelo Apache Airflow.
 
@@ -78,42 +116,42 @@ A DAG é responsável por:
 * Monitorar falhas
 
 Fluxo da DAG:
-
-```
 Start
- |
- ↓
+|
+↓
 Run Delivery Pipeline
- |
- ↓
+|
+↓
 Extract API Data
- |
- ↓
+|
+↓
+Save Bronze
+|
+↓
+Transform to Silver
+|
+↓
 Load PostgreSQL
- |
- ↓
+|
+↓
 Finish
-```
 
 ---
 
-## 3. Data Storage
+## 5. Data Storage
 
 Os dados são armazenados utilizando PostgreSQL.
 
 Modelo inicial:
-
-```
 deliverylens
 │
 └── deliveries_test
-      │
-      ├── id
-      ├── user_id
-      ├── name
-      ├── username
-      └── email
-```
+│
+├── id
+├── user_id
+├── name
+├── username
+└── email
 
 ---
 
@@ -144,10 +182,7 @@ deliverylens
 ---
 
 # 📂 Estrutura do Projeto
-
-```
 DeliveryLens-Analytics/
-
 │
 ├── airflow/
 │   └── dags/
@@ -157,6 +192,12 @@ DeliveryLens-Analytics/
 │   │
 │   ├── ingestion/
 │   │   └── api_ingestion.py
+│   │
+│   ├── bronze/
+│   │   └── bronze_loader.py
+│   │
+│   ├── silver/
+│   │   └── silver_transformer.py
 │   │
 │   ├── pipeline/
 │   │   └── delivery_pipeline.py
@@ -168,10 +209,13 @@ DeliveryLens-Analytics/
 │   └── config/
 │       └── settings.py
 │
+├── data/               # dados gerados pelo pipeline (ignorado no Git)
+│   ├── bronze/
+│   └── silver/
+│
 ├── docker-compose.yml
 ├── requirements.txt
 └── README.md
-```
 
 ---
 
@@ -200,10 +244,7 @@ cd DeliveryLens-Analytics
 ## 2. Configure as variáveis de ambiente
 
 Crie um arquivo:
-
-```
 .env
-```
 
 Exemplo:
 
@@ -238,16 +279,10 @@ Serviços iniciados:
 ## 4. Acesse o Airflow
 
 Abra:
-
-```
 http://localhost:8080
-```
 
 Execute a DAG:
-
-```
 deliverylens_pipeline
-```
 
 ---
 
@@ -257,15 +292,18 @@ Também é possível executar diretamente pelo terminal:
 
 ```bash
 docker compose exec airflow-scheduler \
-airflow dags test deliverylens_pipeline 2026-07-10
+airflow dags test deliverylens_pipeline 2026-07-11
 ```
 
 Resultado esperado:
-
-```
+Silver Layer: X registros validos, Y invalidos
+Pipeline executada com sucesso!
 DagRun Finished
 state: success
-```
+
+Após a execução, os dados ficam disponíveis em:
+data/bronze/users_<data>.json   # dado bruto, como veio da API
+data/silver/users_<data>.json   # dado validado, com is_valid e validation_errors
 
 ---
 
@@ -292,34 +330,42 @@ Roadmap:
 ## 🚧 Sprint 3 - Arquitetura Medalhão
 
 Implementação:
+Bronze Layer  ✅
+|
+↓
+Silver Layer  ✅
+|
+↓
+Gold Layer    🚧
 
-```
-Bronze Layer
-     |
-     ↓
-Silver Layer
-     |
-     ↓
-Gold Layer
-```
-
-Com:
-
-* Dados brutos
-* Tratamento e limpeza
-* Modelagem analítica
+* [x] Bronze Layer: persistência do dado bruto (JSON) via `save_bronze()`
+* [x] Volume Docker para persistir dados fora do container
+* [x] Silver Layer: validação de registros (`id`, `name`, `email`), com `is_valid` e `validation_errors`
+* [ ] Conectar Silver ao carregamento no PostgreSQL
+* [ ] Gold Layer: modelagem dimensional (Star Schema)
 
 ---
 
-## 🚧 Sprint 4 - Cloud & Analytics
+## 🚧 Sprint 4 - Airflow Profissional
 
 Planejado:
 
-* AWS S3
+* Separar DAG em tasks (`task_ingestion`, `task_bronze`, `task_silver`, `task_gold`)
+* Retries e tratamento de falhas
+* Parâmetros e schedule configuráveis
+
+---
+
+## 🚧 Sprint 5 - Cloud & Analytics
+
+Planejado:
+
+* AWS S3 / MinIO
 * Data Lake
 * dbt
 * Parquet
 * Data Warehouse
+* CI/CD
 * Dashboard BI
 
 ---
