@@ -190,7 +190,7 @@ Necessário possuir:
 ## 1. Clone o repositório
 
 ```bash
-git clone https://github.com/seuusuario/DeliveryLens-Analytics.git
+git clone https://github.com/adryan1-dev/DeliveryLens-Analytics.git
 
 cd DeliveryLens-Analytics
 ```
