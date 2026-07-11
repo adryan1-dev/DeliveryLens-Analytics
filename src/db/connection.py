@@ -1,5 +1,5 @@
 import psycopg2
-import config.settings as cs
+import src.config.settings as cs
 
 def get_connection():
     return psycopg2.connect(
