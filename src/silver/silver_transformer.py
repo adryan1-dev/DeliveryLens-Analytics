@@ -59,3 +59,18 @@ def transform_to_silver():
     print(f"Silver Layer: {valid_count} registros validos, {invalid_count} invalidos")
 
     return file_path
+
+
+def load_valid_silver_records(silver_file_path):
+    with open(silver_file_path, "r", encoding="utf-8") as file:
+        silver_data = json.load(file)
+
+    valid_records = []
+    for record in silver_data:
+        if record["is_valid"]:
+            record = record.copy()
+            record.pop("is_valid")
+            record.pop("validation_errors")
+            valid_records.append(record)
+
+    return valid_records
